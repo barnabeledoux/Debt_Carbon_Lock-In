@@ -26,8 +26,11 @@ class kelly_debt:
     - borroweachstep: boolean to indicate if the gambler borrows at each step
     - D0: initial debt
     """
-    def __init__(self, n, L, Ci, tp, rho, Tmax, iskelly = True, pini=[], rini=[], rhoini = 0., gaussian = False, W = 0., sig=0.1, borroweachstep = False, D0=0.):
+    def __init__(self, n, L, Ci, tp, rho, Tmax, iskelly = True, pini=[], rini=[], rhoini = 0., gaussian = False, W = 0., sig=0.1, borroweachstep = False, D0=0., varL = False, listL=[], listjump=[], listrho=[]):
         self.n, self.B0, self.tp, self.rho, self.Tmax, self.iskelly, self.L, self.Ci = n, (L-1)*Ci, tp, rho, Tmax, iskelly, L, Ci
+        self.varL, self.listL = len(listL)>0, listL
+        self.listjump = listjump
+        self.listrho = listrho
         self.D0 = D0
         self.rx = self.random_discrete_distribution(self.n)
         self.px = self.random_discrete_distribution(self.n)
@@ -79,13 +82,20 @@ class kelly_debt:
     
     def step_gaussian(self, tau):
         if self.C>=0: #If the capital is positive, we can gamble
-            jump = np.exp(np.random.normal(self.W, self.sig))
+            if self.varL: #If the leverage is a random variable, update it
+                self.L = self.listL[int(tau)]
+            if len(self.listjump)>0: #If a list of jumps is provided, use it
+                jump = self.listjump[int(tau)]
+            else:
+                jump = np.exp(np.random.normal(self.W, self.sig))
+            if len(self.listrho)>0: #If a list of interest rates is provided, use it
+                self.rho = self.listrho[int(tau)]
             Cstart = self.C+0.
             self.C = jump*Cstart
             self.D = self.rho*self.D
             if self.borroweachstep: #If the gambler borrows at each step, update the capital and debt
-                self.D += (self.L - 1.)*Cstart
-                self.C += (self.L - 1.)*Cstart
+                self.D += max((self.L - 1.)*Cstart,-self.D) #The debt cannot be negative
+                self.C += max((self.L - 1.)*Cstart,-self.D)
             if tau == self.tp: #If the time is equal to the payback time, the gambler pays back the debt
                 self.C -= self.D
                 self.D = 0
@@ -113,7 +123,7 @@ class kelly_debt:
         self.C = self.L*self.Ci
         self.D = (self.L - 1.)*self.Ci + self.D0
         self.Clist = [self.L*self.Ci]
-        self.Dlist = [(self.L - 1.)*self.Ci]
+        self.Dlist = [self.D] #[(self.L - 1.)*self.Ci]
 
     def step(self, tau): #Step of the simulation if the gaussian approximation is not used
         p = np.random.rand()
