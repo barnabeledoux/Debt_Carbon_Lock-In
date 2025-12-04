@@ -4,6 +4,8 @@ import random as rand
 import scipy
 from scipy.optimize import fsolve
 import os
+import matplotlib as mpl
+from matplotlib.colors import LinearSegmentedColormap
 from colorsarr import colorsarr #For the colormap
 colarr = colorsarr()
 
@@ -65,9 +67,9 @@ class kelly_debt:
         distribution = random_numbers / np.sum(random_numbers)
         return distribution
 
-    def emissions(self, tf, intensity, tau0, predic = False): #Compute the emissions of the gambler between tau0 and tf, given the carbon intensity of the game
+    def emissions(self, tf, intensity, tau0, predic = False, em0 = 0.): #Compute the emissions of the gambler between tau0 and tf, given the carbon intensity of the game
         gamma, I0 = -(intensity[-1] - intensity[0])/intensity.size, intensity[0] #Get linear parameters to model carbon intensity
-        E, Ctot = 0., 0.
+        E, Ctot = em0, 0.
         self.initial()
         self.tau = tau0
         while self.tau<tf: #While the time is less than the final time, evolve stochastically
@@ -90,12 +92,17 @@ class kelly_debt:
                 jump = np.exp(np.random.normal(self.W, self.sig))
             if len(self.listrho)>0: #If a list of interest rates is provided, use it
                 self.rho = self.listrho[int(tau)]
-            Cstart = self.C+0.
+            Cstart, Dstart = self.C+0., self.D+0.
             self.C = jump*Cstart
             self.D = self.rho*self.D
             if self.borroweachstep: #If the gambler borrows at each step, update the capital and debt
                 self.D += max((self.L - 1.)*Cstart,-self.D) #The debt cannot be negative
                 self.C += max((self.L - 1.)*Cstart,-self.D)
+                X = (self.C-self.D)/(self.Clist[0]*self.rho**(tau+1))
+                Xbef = (Cstart-Dstart)/(self.Clist[0]*self.rho**tau)
+                #if X*Xbef<0 and Xbef<0:
+                    #print(jump, self.rho)
+                    #print('Xbef : ', (Cstart-Dstart)/(self.Clist[0]*self.rho**tau), ' X : ', X)
             if tau == self.tp: #If the time is equal to the payback time, the gambler pays back the debt
                 self.C -= self.D
                 self.D = 0
@@ -156,23 +163,28 @@ class kelly_debt:
         self.count = 0
         self.counttot = 0
         rangetrend = range(10,20)
+        clist = self.carr[1:6].copy()
+        #clist.reverse()
+        cmapphase = LinearSegmentedColormap.from_list('cmap', clist) # Create the color map
         trend = [1E4*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*i) for i in rangetrend]
         ax1.plot(rangetrend, trend, ls=':', lw=2., c=self.carr[-1])
         if scale=='log':
-            ax1.text(0, 1E4*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*21), r'$\propto\exp(W \tau)$', fontsize = 15)
+            ax1.text(4, 3E3*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*21), r'$\propto\exp(W \tau)$', fontsize = 15)
         else:
             ax1.text(0, 1E-10*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*21), r'$\propto\exp(W \tau)$', fontsize = 15)
         for j in range(nsimu):
             self.evol()
             self.count += int(self.C > 1)
             self.counttot += 1
-            k = np.random.randint(1,13)
-            ax1.plot(range(self.Tmax+1), self.Clist, c = self.carr[k], alpha = 0.35, lw=2.2)
+            k = np.random.randint(0,7)
+            ax1.plot(range(self.Tmax+1), self.Clist, c = cmapphase((np.log(max(self.Clist[-1],1.E1))-30.)/20.), alpha = 0.35, lw=2.2)
         xbank = 1-self.count/self.counttot
         if scale == 'log':
             ax1.set_ylim(1E-1, 1E1*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*self.Tmax))
         else:
             ax1.set_ylim(1E-1, 1E-10*np.exp((self.mean + (self.L-1 if self.borroweachstep else 0.))*self.Tmax))
-        ax1.set_title(r'$ W=$'+r'$ {}$'.format(str((self.mean + (self.L-1 if self.borroweachstep else 0.)))[:5]) + r', $\,\log(\rho) = $' + r' ${}$'.format(str(np.log(self.rho))[:5]) + r', $\, x_{\text{bankrupt}} = $' + r'${}$'.format(str(xbank)[:5]), fontsize=16)
+        ax1.set_xlim(0, self.Tmax)
+        ax1.tick_params(axis='both', which='major', direction='in', labelsize=14)
+        #ax1.set_title(r'$ W=$'+r'$ {}$'.format(str((self.mean + (self.L-1 if self.borroweachstep else 0.)))[:5]) + r', $\,\log(\rho) = $' + r' ${}$'.format(str(np.log(self.rho))[:5]) + r', $\, x_{\text{bankrupt}} = $' + r'${}$'.format(str(xbank)[:5]), fontsize=16)
         cd = os.getcwd()
         fig1.savefig(cd + r'/results/simu_kelly'+str(self.L)+'.pdf')
